@@ -75,8 +75,7 @@ def load_data():
     baci_clean[val_col] = baci_clean[val_col].fillna(0)
     baci_clean['trade_usd'] = baci_clean[val_col] * 1000
 
-    # 2) 한국(410)이 수출한 데이터 중심 필터링 (필요시 활성화 혹은 전체 활용)
-    # i가 410인 데이터만 한국 기준 수출 데이터로 필터링합니다.
+    # 2) 한국(410)이 수출한 데이터 중심 필터링
     baci_clean = baci_clean[baci_clean['i'].astype(str).str.strip().isin(['410', '41'])].copy()
 
     # 3) 상대국(j) 코드와 country_codes_sample.csv의 (j, country_name) 매핑
@@ -96,7 +95,7 @@ def load_data():
             except ValueError:
                 pass
 
-    # 이미지에 나타난 수입 상대국 코드 수동 Fallback 보강 (1: 미국, 2: 중국, 3: 일본 등)
+    # 수입 상대국 코드 수동 Fallback 보강 (1: 미국, 2: 중국, 3: 일본 등)
     fallback_dict = {
         '1': '미국 (USA)', '2': '중국 (China)', '3': '일본 (Japan)', 
         '4': '베트남 (Vietnam)', '5': '독일 (Germany)', '6': '인도 (India)', 
@@ -167,7 +166,8 @@ if selected_grades:
 # ==========================================
 # 3. 메인 대시보드 화면
 # ==========================================
-st.title("한국(410) 무역 분석 대시보드")
+# [144번째 라인] (410) 제거 완료
+st.title("한국 무역 분석 대시보드")
 st.markdown("---")
 
 with st.expander("📌 baci_85_sample.csv 결측치 처리 및 전처리 정보", expanded=False):
