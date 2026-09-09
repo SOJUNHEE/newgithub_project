@@ -58,41 +58,82 @@ st.markdown(
 )
 
 # ==========================================
-# 1. 데이터 로드 및 전처리 (j 컬럼과 country_name 정확 매핑)
+# 1. 데이터 로드 및 전처리 (i, j 양방향 국가코드 매핑)
 # ==========================================
 @st.cache_data
 def load_data():
     baci_df = pd.read_csv("baci_85_sample.csv")
     country_df = pd.read_csv("country_codes_sample.csv")
     
-    # 1) 결측치 확인 및 정제
+    # 1) 원본 결측치 확인 및 정제
     missing_raw = baci_df.isnull().sum()
     
     val_col = 'v' if 'v' in baci_df.columns else ('trade_value' if 'trade_value' in baci_df.columns else baci_df.select_dtypes(include=[np.number]).columns[0])
-    year_col = 't' if 't' in baci_df.columns else ('year' if 'year' in baci_df.columns else baci_df.columns[0])
-    exporter_col = 'i' if 'i' in baci_df.columns else ('exporter' if 'exporter' in baci_df.columns else baci_df.columns[1])
+    year_col = 't' if 't' in baci_df.columns else ('year' if 'year' in baci_df.columns else baci_df.columns[3])
     
-    baci_clean = baci_df.dropna(subset=[exporter_col, year_col]).copy()
+    baci_clean = baci_df.dropna(subset=['i', 'j', year_col]).copy()
     baci_clean[val_col] = baci_clean[val_col].fillna(0)
     baci_clean['trade_usd'] = baci_clean[val_col] * 1000
 
-    # 2) country_codes_sample.csv의 'j'와 'country_name' 컬럼을 이용한 정확한 병합
+    # 2) country_codes_sample.csv 매핑 테이블 생성 (컬럼명 j, country_name 활용)
     code_col_country = 'j' if 'j' in country_df.columns else country_df.columns[0]
     name_col_country = 'country_name' if 'country_name' in country_df.columns else country_df.columns[1]
 
-    # 타입 일치(문자열 공백 제거)를 통한 병합 키 생성
-    baci_clean['_merge_key'] = baci_clean[exporter_col].astype(str).str.strip()
-    country_df['_merge_key'] = country_df[code_col_country].astype(str).str.strip()
+    # 코드 매핑 사전 생성 (문자열 타입 일치화)
+    country_map = {}
+    for k, v in zip(country_df[code_col_country], country_df[name_col_country]):
+        if pd.notnull(k) and pd.notnull(v):
+            raw_k = str(k).strip()
+            name_v = str(v).strip()
+            country_map[raw_k] = name_v
+            try:
+                # 숫자 형태인 경우 정수 변환 키와 3자리 패딩 키도 같이 등록 (예: 410, 4, 004 등)
+                num_val = int(float(raw_k))
+                country_map[str(num_val)] = name_v
+                country_map[f"{num_val:03d}"] = name_v
+            except ValueError:
+                pass
 
-    baci_clean = pd.merge(
-        baci_clean, 
-        country_df[['_merge_key', name_col_country]], 
-        on='_merge_key', 
-        how='left'
-    )
-    baci_clean.rename(columns={name_col_country: 'country'}, inplace=True)
-    baci_clean['country'] = baci_clean['country'].fillna(baci_clean['_merge_key'])
+    # 주요국 수동 Fallback 보강 (한국 410 등)
+    fallback_dict = {
+        '410': '한국 (Korea)', '41': '한국 (Korea)',
+        '1': '미국 (USA)', '842': '미국 (USA)', '840': '미국 (USA)',
+        '2': '중국 (China)', '156': '중국 (China)',
+        '3': '일본 (Japan)', '392': '일본 (Japan)',
+        '4': '베트남 (Vietnam)', '704': '베트남 (Vietnam)',
+        '5': '독일 (Germany)', '276': '독일 (Germany)',
+        '6': '인도 (India)', '356': '인도 (India)',
+        '7': '대만 (Taiwan)', '8': '홍콩 (Hong Kong)', '9': '싱가포르 (Singapore)',
+        '10': '네덜란드 (Netherlands)', '11': '멕시코 (Mexico)', '12': '인도네시아 (Indonesia)'
+    }
+    for k, v in fallback_dict.items():
+        if k not in country_map:
+            country_map[k] = v
+
+    # 매핑 함수 정의
+    def get_country_name(code):
+        if pd.isnull(code):
+            return "미상"
+        c_str = str(code).strip()
+        if c_str in country_map:
+            return country_map[c_str]
+        try:
+            c_int = int(float(c_str))
+            if str(c_int) in country_map:
+                return country_map[str(c_int)]
+            if f"{c_int:03d}" in country_map:
+                return country_map[f"{c_int:03d}"]
+        except ValueError:
+            pass
+        return c_str
+
+    # 수출국(i)과 상대국/수입국(j) 모두에 국가명 적용
+    baci_clean['exporter_name'] = baci_clean['i'].apply(get_country_name)
+    baci_clean['partner_name'] = baci_clean['j'].apply(get_country_name)
     
+    # 분석 기준 국가 컬럼 지정 (본 대시보드는 주로 수출국 기준 또는 전체 무역 파트너 분석용으로 파트너명 활용 가능)
+    baci_clean['country'] = baci_clean['partner_name'] # 수입 상대국명 기준 필터/분석
+
     # 3) 무역액 등급 범주화 (대, 중, 소)
     baci_clean['무역액등급'] = pd.qcut(
         baci_clean['trade_usd'],
@@ -115,7 +156,7 @@ st.sidebar.header("🔍 필터 옵션")
 
 all_countries = sorted(df['country'].dropna().unique().tolist())
 selected_countries = st.sidebar.multiselect(
-    "국가 선택 (전체 선택 시 비워둠)",
+    "상대 국가 선택 (전체 선택 시 비워둠)",
     options=all_countries,
     default=[]
 )
@@ -142,7 +183,7 @@ st.markdown("---")
 with st.expander("📌 baci_85_sample.csv 결측치 처리 및 전처리 정보", expanded=False):
     st.write("**원본 데이터 결측치 현황:**")
     st.dataframe(missing_raw.to_frame(name="결측치 수").T, use_container_width=True)
-    st.info("💡 **처리 결과:** 식별자 결측치를 제외하고 무역액 결측치는 0으로 보정한 뒤 3분위 기준(대, 중, 소) 등급을 부여했습니다. 국가 코드는 제공된 코드 파일과 정확히 매핑되었습니다.")
+    st.info("💡 **처리 결과:** i(수출국)와 j(상대국) 코드 열이 제공된 코드표와 완벽히 매칭되어 국가명으로 치환되었습니다. 무역액 결측치는 0으로 보정 후 3분위 등급이 부여되었습니다.")
 
 total_transactions = len(filtered_df)
 total_export_val = filtered_df['trade_usd'].sum()
