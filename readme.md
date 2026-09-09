@@ -4,7 +4,8 @@ baci_85_sample.csv 사용
 country_codes_sample.csv 사용
 streamlit 사용
 
-한글지원
+한글지원 필수
+
 
 오른쪽 화면은
 1. 타이틀 : 무역 분석 대시보드
