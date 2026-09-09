@@ -5,6 +5,8 @@ country_codes_sample.csv 사용
 streamlit 사용
 
 한글지원 필수
+현재 프리텐다드 글꼴 vs code에 파일로 끌어와져 있음
+
 
 
 오른쪽 화면은
